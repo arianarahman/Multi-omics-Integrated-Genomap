@@ -1,0 +1,138 @@
+import scanpy as sc
+import bbknn
+import matplotlib.pyplot as plt
+import scipy.io as sio
+import anndata as ad
+import numpy as np
+from sklearn.impute import SimpleImputer
+from sklearn.metrics import adjusted_rand_score, silhouette_score
+from sklearn.manifold import TSNE
+import umap.umap_ as umap
+
+# Set verbosity level and logging for scanpy
+sc.settings.verbosity = 3
+sc.logging.print_header()
+sc.settings.set_figure_params(dpi=80, facecolor='white')
+plt.rcParams['figure.figsize'] = (8, 10)
+plt.rcParams['font.size'] = 30
+plt.rcParams['font.weight'] = 'bold'
+
+
+# Function to plot embeddings with grid lines removed
+# Function to plot embeddings
+def plot_embedding(X, y, title, filename):
+    plt.figure(figsize=(8, 10))
+    plt.scatter(X[:, 0], X[:, 1], c=y, cmap='jet', marker='o', s=18)
+    plt.colorbar()
+    plt.xlabel(f'{title}1', fontsize=30, fontweight='bold')
+    plt.ylabel(f'{title}2', fontsize=30, fontweight='bold')
+    plt.title(f'{title}', fontsize=30, fontweight='bold')
+    plt.xticks(fontsize=30, fontweight='bold')
+    plt.yticks(fontsize=30, fontweight='bold')
+    plt.xlim(-100, 100)
+    plt.ylim(-100, 100)
+    plt.grid(False)
+    plt.savefig(f'{data_folder}/{filename}.png')
+    #plt.tight_layout()
+    #plt.show()
+def plot_umap_embedding(X, y, title, filename):
+    plt.figure(figsize=(8, 10))
+    scatter =plt.scatter(X[:, 0], X[:, 1], c=y, cmap='jet', marker='o', s=18)
+    plt.colorbar(scatter, label='Batch Label')
+    plt.xlabel(f'{title}1', fontsize=30, fontweight='bold')
+    plt.ylabel(f'{title}2', fontsize=30, fontweight='bold')
+    plt.title(f'{title}', fontsize=30, fontweight='bold')
+    plt.xticks(fontsize=30, fontweight='bold')
+    plt.yticks(fontsize=30, fontweight='bold')
+    plt.xlim(-5, 15)
+    plt.ylim(-10, 15)
+    plt.grid(False)
+    plt.savefig(f'{data_folder}/{filename}.png')
+    #plt.tight_layout()
+    #plt.show()
+
+
+
+data_folder = 'C:/Users/miz_r/Documents/Ariana/StanfordIntern/DataSets/GenomapDataSet'
+
+def load_data(file_name):
+    return sio.loadmat(f"{data_folder}/{file_name}")
+
+# Load datasets
+data_files = ['dataBaronX.mat', 'dataMuraroX.mat', 'dataScapleX.mat', 'dataWangX.mat', 'dataXinX.mat']
+adatas = []
+for file in data_files:
+    data_dict = load_data(file)
+    key_to_use = next((key for key in data_dict if 'data' in key), None)
+    if key_to_use:
+        adatas.append(ad.AnnData(data_dict[key_to_use]))
+    else:
+        print(f"Could not find appropriate data key in {file}")
+
+# Load class and batch labels
+dx = sio.loadmat(f'{data_folder}/classLabel.mat')
+y = np.squeeze(dx['classLabel'])
+dx = sio.loadmat(f'{data_folder}/batchLabel.mat')
+ybatch = np.squeeze(dx['batchLabel'])
+
+# The user inputs are the number of neighbors and number of HVGs
+no_neighbor = 5
+n_hvgs = 1000
+
+# Concatenate all datasets into a single AnnData
+merged_adata = ad.concat(adatas, join='outer', label="batch", keys=[str(i) for i in range(len(adatas))])
+assert len(y) == merged_adata.shape[0], "Number of class labels doesn't match number of cells!"
+assert len(ybatch) == merged_adata.shape[0], "Number of batch labels doesn't match number of cells!"
+
+merged_adata.obs['class'] = y
+merged_adata.obs['batch'] = ybatch
+
+# Impute NaN values
+imputer = SimpleImputer(strategy="mean")
+merged_adata.X = imputer.fit_transform(merged_adata.X)
+
+# Data preprocessing
+sc.pp.normalize_total(merged_adata, target_sum=1e4)
+sc.pp.log1p(merged_adata)
+sc.pp.pca(merged_adata, n_comps=50)
+
+# Batch correction using BBKNN
+bbknn.bbknn(merged_adata, batch_key='batch')
+
+# Dimensionality reduction and clustering
+sc.tl.umap(merged_adata)
+sc.tl.tsne(merged_adata, n_pcs=50, perplexity=30)
+sc.tl.leiden(merged_adata, resolution=0.4)
+# t-SNE plotting
+#embedding2D_TSNE = merged_adata.obsm['X_tsne']
+#plot_embedding(embedding2D_TSNE, y, "t-SNE", 'TSNE_plot_bbknn_paper_1')
+#plt.grid(False)
+#plt.show()
+
+# UMAP plotting
+embedding2D_UMAP = merged_adata.obsm['X_umap']
+#plot_embedding(embedding2D_UMAP, y, "UMAP", 'UMAP_plot_bbknn_paper_12_10')
+plot_umap_embedding(embedding2D_UMAP, y, "UMAP", 'BBKNN_UMAP_plot_with_Genomap_DataSet')
+#plt.grid(False)
+##plt.show()
+
+# t-SNE plotting
+embedding2D_TSNE = merged_adata.obsm['X_tsne']
+plot_embedding(embedding2D_TSNE, y, "t-SNE", 'BBKNN_TSNE_plot_with_Genomap_DataSet')
+#plt.grid(False)
+#plt.show()
+
+tsne_reducer = TSNE(n_components=2, perplexity=30, n_iter=250)
+embedding2D_TSNE = tsne_reducer.fit_transform(merged_adata)
+plot_embedding(embedding2D_TSNE, y, "t-SNE", "BBKNN_TSNE_plot_2_with_Genomap_DataSet")
+
+# Compute and print clustering metrics for UMAP and t-SNE
+ari_umap = adjusted_rand_score(merged_adata.obs['batch'], y)
+silhouette_umap = silhouette_score(embedding2D_UMAP, y)
+ari_tsne = adjusted_rand_score(merged_adata.obs['batch'], y)
+silhouette_tsne = silhouette_score(embedding2D_TSNE, y)
+
+print(f"UMAP Adjusted Rand Index: {ari_umap}")
+print(f"UMAP Silhouette Score: {silhouette_umap}")
+print(f"t-SNE Adjusted Rand Index: {ari_tsne}")
+print(f"t-SNE Silhouette Score: {silhouette_tsne}")
