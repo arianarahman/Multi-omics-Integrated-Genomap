@@ -1,0 +1,99 @@
+import pandas as pd
+import scanpy as sc
+import matplotlib.pyplot as plt
+import anndata as ad
+
+# Set verbosity level and logging for scanpy
+sc.settings.verbosity = 3
+sc.logging.print_header()
+sc.settings.set_figure_params(dpi=80, facecolor='white')
+plt.rcParams['figure.figsize'] = (8, 10)
+plt.rcParams['font.size'] = 30
+plt.rcParams['font.weight'] = 'bold'
+
+# Function to plot embeddings with grid lines removed
+def plot_embedding(X, y, title, filename):
+    plt.figure(figsize=(8, 10))
+    plt.scatter(X[:, 0], X[:, 1], c=y, cmap='jet', marker='o', s=18)
+    plt.colorbar(label='Batch Label')
+    plt.xlabel(f'{title}1', fontsize=30, fontweight='bold')
+    plt.ylabel(f'{title}2', fontsize=30, fontweight='bold')
+    plt.title(f'{title}', fontsize=20, fontweight='bold')
+    plt.xticks(fontsize=20, fontweight='bold')
+    plt.yticks(fontsize=20, fontweight='bold')
+    plt.grid(False)
+    plt.savefig(f'{data_folder}/{filename}.png')
+
+def plot_umap_embedding(X, y, title, filename):
+    plt.figure(figsize=(8, 10))
+    scatter =plt.scatter(X[:, 0], X[:, 1], c=y, cmap='jet', marker='o', s=18)
+    plt.colorbar(scatter, label='Batch Label')
+    plt.xlabel(f'{title}1', fontsize=30, fontweight='bold')
+    plt.ylabel(f'{title}2', fontsize=30, fontweight='bold')
+    plt.title(f'{title}', fontsize=20, fontweight='bold')
+    plt.xticks(fontsize=20, fontweight='bold')
+    plt.yticks(fontsize=20, fontweight='bold')
+    plt.xlim(0, 20)
+    plt.ylim(0, 20)
+    plt.grid(False)
+    plt.savefig(f'{data_folder}/{filename}.png')
+
+def plot_tsne_embedding(X, y, title, filename):
+    plt.figure(figsize=(2, 5))
+    scatter =plt.scatter(X[:, 0], X[:, 1], c=y, cmap='jet', marker='o', s=18)
+    plt.colorbar(scatter, label='Batch Label')
+    plt.xlabel(f'{title}1', fontsize=30, fontweight='bold')
+    plt.ylabel(f'{title}2', fontsize=30, fontweight='bold')
+    plt.title(f'{title}', fontsize=20, fontweight='bold')
+    plt.xticks(fontsize=20, fontweight='bold')
+    plt.yticks(fontsize=20, fontweight='bold')
+    plt.xlim(-80, 80)
+    plt.ylim(-40, 40)
+    plt.grid(False)
+    plt.savefig(f'{data_folder}/{filename}.png')
+
+# Load PCA results and metadata
+data_folder = 'C:/Users/miz_r/Documents/Ariana/StanfordIntern/DataSets/GenomapDataSet'
+pca_results = pd.read_csv(f'{data_folder}/pca_results.csv')
+metadata = pd.read_csv(f'{data_folder}/metadata.csv')
+
+# Assuming the first column of pca_results is an identifier
+pca_data = pca_results.iloc[:, 1:]
+
+# Convert to AnnData object
+adata = ad.AnnData(pca_data)
+adata.obs = metadata
+y= adata.obs['Class'] 
+# Run UMAP
+sc.pp.neighbors(adata, n_neighbors=5)  # Adjust n_neighbors as needed
+sc.tl.umap(adata)
+sc.tl.tsne(adata, n_pcs=50, perplexity=30)
+# t-SNE plotting
+embedding2D_TSNE = adata.obsm['X_tsne']
+plot_tsne_embedding(embedding2D_TSNE, y, "t-SNE", 'TSNE_plot_bbknn_paper_1')
+plt.grid(False)
+plt.show()
+
+# UMAP plotting
+embedding2D_UMAP = adata.obsm['X_umap']
+#plot_embedding(embedding2D_UMAP, y, "UMAP", 'UMAP_plot_bbknn_paper_12_10')
+plot_umap_embedding(embedding2D_UMAP, y, "UMAP", 'UMAP_plot_bbknn_paper_12_10')
+plt.grid(False)
+plt.show()
+# Extract UMAP embedding data
+umap_embedding = adata.obsm['X_umap']
+
+# Assuming metadata contains a column 'Batch' for coloring
+batch_labels = adata.obs['Class']
+
+# Plot UMAP results using custom plot function
+plot_umap_embedding(umap_embedding, batch_labels, "UMAP", 'UMAP_plot')
+
+# Run t-SNE
+sc.tl.tsne(adata, n_pcs=50, perplexity=30)  # Adjust n_pcs and perplexity as needed
+
+# Extract t-SNE embedding data
+tsne_embedding = adata.obsm['X_tsne']
+
+# Plot t-SNE results using custom plot function
+plot_tsne_embedding(tsne_embedding, batch_labels, "t-SNE", 'TSNE_plot')
