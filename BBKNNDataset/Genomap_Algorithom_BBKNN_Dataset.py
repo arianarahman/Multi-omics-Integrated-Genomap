@@ -117,7 +117,7 @@ def main():
     
     true_labels_cat = adata.obs[CELLTYPE_KEY].astype('category').cat.codes
     # Update filenames to reflect the new workflow
-    plot_filename_prefix = "Genomap_ScanoramaPipeline_BBKNN_Dataset"
+    plot_filename_prefix = "Genomap_Algorithm_With_BBKNN_Dataset"
     plot_embedding(adata.obsm['X_umap'], true_labels_cat, "UMAP", f"UMAP_Plot_{plot_filename_prefix}")
     plot_embedding(adata.obsm['X_tsne'], true_labels_cat, "t-SNE", f"TSNE_Plot_{plot_filename_prefix}")
 

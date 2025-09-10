@@ -101,8 +101,8 @@ def main():
     sc.tl.umap(adata, min_dist=0.1)
     sc.tl.tsne(adata, use_rep='X_genomap')
 
-    plot_embedding(adata.obsm['X_umap'], true_labels, 'UMAP', 'UMAP_Plot_Genomap_With_Scanorama_Dataset')
-    plot_embedding(adata.obsm['X_tsne'], true_labels, 't-SNE', 't-SNE_Plot_Genomap_With_Scanorama_Dataset')
+    plot_embedding(adata.obsm['X_umap'], true_labels, 'UMAP', 'UMAP_Plot_Genomap_Algorithm_Scanorama_Dataset')
+    plot_embedding(adata.obsm['X_tsne'], true_labels, 't-SNE', 't-SNE_Plot_Genomap_Algorithm_Scanorama_Dataset')
 
     # --- 5. EVALUATION ---
     logging.info("Calculating evaluation metrics...")
@@ -113,8 +113,8 @@ def main():
 
     logging.info(f"ARI: {ari:.3f}, Rand Index: {rand:.3f}, Silhouette Score: {silhouette:.3f}")
 
-    plot_metrics_bar(ari, rand, silhouette, "Genomap_Algorithm_With_Scanorama_data")
-    save_metrics_csv(ari, rand, silhouette, "CSV_Genomap_Algorithm_With_Scanorama_data")
+    plot_metrics_bar(ari, rand, silhouette, "Genomap_Algorithm_Scanorama_Dataset")
+    save_metrics_csv(ari, rand, silhouette, "CSV_Genomap_Algorithm_Scanorama_Dataset")
 
     logging.info("Analysis complete.")
 

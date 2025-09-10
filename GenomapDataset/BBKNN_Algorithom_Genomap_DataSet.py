@@ -137,8 +137,8 @@ def main():
     
     logging.info(f"ARI: {ari:.3f}, Rand Index: {rand:.3f}, Silhouette Score: {silhouette:.3f}")
 
-    plot_metrics_bar(ari, rand, silhouette, "BBKNN_Algorithm_With_Genomap_data")
-    save_metrics_csv(ari, rand, silhouette, "CSV_BBKNN_Algorithm_With_Genomap_data")
+    plot_metrics_bar(ari, rand, silhouette, "BBKNN_Algorithm_With_Genomap_dataset")
+    save_metrics_csv(ari, rand, silhouette, "CSV_BBKNN_Algorithm_With_Genomap_dataset")
     
     logging.info("BBKNN analysis complete.")
 

@@ -21,7 +21,7 @@ def plot_embedding(X, y, title, filename):
     plt.scatter(X[:, 0], X[:, 1], c=y, cmap='jet', s=18)
     plt.xlabel(f'{title} Dimension 1', fontsize=5)
     plt.ylabel(f'{title} Dimension 2', fontsize=5)
-    plt.title(f'{filename}', fontsize=5)
+    plt.title(f'{filename}', fontsize=10)
     plt.xticks(fontsize=5)
     plt.yticks(fontsize=5)
     plt.grid(False)
@@ -121,8 +121,8 @@ def main():
     logging.info(f"ARI: {ari:.3f}, Rand Index: {rand:.3f}, Silhouette Score: {silhouette:.3f}")
 
     # Plot and save metrics
-    plot_metrics_bar(ari, rand, silhouette, "iNMF_Algorithm_With_Scanorama_data")
-    save_metrics_csv(ari, rand, silhouette, "CSV_iNMF_Algorithm_With_Scanorama_data")
+    plot_metrics_bar(ari, rand, silhouette, "iNMF_Algorithm_With_Scanorama_Dataset")
+    save_metrics_csv(ari, rand, silhouette, "CSV_iNMF_Algorithm_With_Scanorama_Dataset")
 
 if __name__ == "__main__":
     main()

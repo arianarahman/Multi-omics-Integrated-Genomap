@@ -20,7 +20,7 @@ def plot_embedding(X, y, title, filename):
     plt.scatter(X[:, 0], X[:, 1], c=y, cmap='jet', s=18)
     plt.xlabel(f'{title} Dimension 1', fontsize=5)
     plt.ylabel(f'{title} Dimension 2', fontsize=5)
-    plt.title(f'{filename}', fontsize=5)
+    plt.title(f'{filename}', fontsize=10)
     plt.xticks(fontsize=5)
     plt.yticks(fontsize=5)
     plt.grid(False)
@@ -108,8 +108,8 @@ def main():
     true_labels = adata_integrated.obs['celltype'].astype('category').cat.codes.to_numpy()
     cluster_labels = adata_integrated.obs['leiden'].astype('category').cat.codes.to_numpy()
 
-    plot_embedding(adata_integrated.obsm['X_umap'], true_labels, "UMAP", "UMAP_Plot_Using_Scanorama_Algorithom_With_Scanorama_Dataset")
-    plot_embedding(adata_integrated.obsm['X_tsne'], true_labels, "t-SNE", "t-SNE_Plot_Using_Scanorama_Algorithom_With_Scanorama_Dataset")
+    plot_embedding(adata_integrated.obsm['X_umap'], true_labels, "UMAP", "UMAP_Plot_Scanorama_Algorithm_Scanorama_Dataset")
+    plot_embedding(adata_integrated.obsm['X_tsne'], true_labels, "t-SNE", "t-SNE_Plot_Scanorama_Algorithm_Scanorama_Dataset")
 
     ari = adjusted_rand_score(true_labels, cluster_labels)
     rand = rand_score(true_labels, cluster_labels)
@@ -117,9 +117,9 @@ def main():
     silhouette = silhouette_score(adata_integrated.obsm['X_umap'], cluster_labels)
 
     logging.info(f"ARI: {ari:.3f}, Rand Index: {rand:.3f}, Silhouette Score: {silhouette:.3f}")
-    
-    plot_metrics_bar(ari, rand, silhouette, "Scanorama_Algorithm_With_Scanorama_data")
-    save_metrics_csv(ari, rand, silhouette, "CSV_Scanorama_Algorithm_With_Scanorama_data")
+
+    plot_metrics_bar(ari, rand, silhouette, "Scanorama_Algorithm_Scanorama_Dataset")
+    save_metrics_csv(ari, rand, silhouette, "CSV_Scanorama_Algorithm_Scanorama_Dataset")
 
     logging.info("Analysis complete.")
 

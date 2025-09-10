@@ -21,7 +21,7 @@ def plot_embedding(X, y, title, filename):
     plt.scatter(X[:, 0], X[:, 1], c=y, cmap='jet', s=18)
     plt.xlabel(f'{title} Dimension 1', fontsize=5)
     plt.ylabel(f'{title} Dimension 2', fontsize=5)
-    plt.title(f'{filename}', fontsize=5)
+    plt.title(f'{filename}', fontsize=10)
     plt.xticks(fontsize=5)
     plt.yticks(fontsize=5)
     plt.grid(False)
@@ -114,8 +114,8 @@ def main():
     true_labels = adata.obs['celltype'].astype('category').cat.codes.to_numpy()
     cluster_labels = adata.obs['leiden'].astype('category').cat.codes.to_numpy()
 
-    plot_embedding(adata.obsm['X_umap'], true_labels, "UMAP", "UMAP_Plot_Using_BBKNN_Algorithom_With_Scanorama_Dataset")
-    plot_embedding(adata.obsm['X_tsne'], true_labels, "t-SNE", "t-SNE_Plot_Using_BBKNN_Algorithom_With_Scanorama_Dataset")
+    plot_embedding(adata.obsm['X_umap'], true_labels, "UMAP", "UMAP_Plot_BBKNN_Algorithm_Scanorama_Dataset")
+    plot_embedding(adata.obsm['X_tsne'], true_labels, "t-SNE", "t-SNE_Plot_BBKNN_Algorithm_Scanorama_Dataset")
 
     # Clustering evaluation
     ari = adjusted_rand_score(true_labels, cluster_labels)
@@ -123,8 +123,8 @@ def main():
     silhouette = silhouette_score(adata.obsm['X_umap'], cluster_labels)
   
     # Plot metrics bar chart and save it to CSV
-    plot_metrics_bar(ari, rand, silhouette, "BBKNN_Algorithm_With_Scanorama_data")
-    save_metrics_csv(ari, rand, silhouette, "CVS_BBKNN_Algorithm_With_Scanorama_data")
+    plot_metrics_bar(ari, rand, silhouette, "BBKNN_Algorithm_Scanorama_Dataset")
+    save_metrics_csv(ari, rand, silhouette, "CSV_BBKNN_Algorithm_Scanorama_Dataset")
 
 if __name__ == "__main__":
     main()

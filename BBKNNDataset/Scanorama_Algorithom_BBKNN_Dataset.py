@@ -116,8 +116,8 @@ def main():
     sc.tl.tsne(adata, use_rep='X_scanorama')
     
     true_labels_cat = adata.obs[CELLTYPE_KEY].astype('category').cat.codes
-    plot_embedding(adata.obsm['X_umap'], true_labels_cat, "UMAP", "UMAP_Plot_Scanorama_BBKNN_Dataset")
-    plot_embedding(adata.obsm['X_tsne'], true_labels_cat, "t-SNE", "TSNE_Plot_Scanorama_BBKNN_Dataset")
+    plot_embedding(adata.obsm['X_umap'], true_labels_cat, "UMAP", "UMAP_Plot_Scanorama_Algorithm_With_BBKNN_Dataset")
+    plot_embedding(adata.obsm['X_tsne'], true_labels_cat, "t-SNE", "TSNE_Plot_Scanorama_Algorithm_With_BBKNN_Dataset")
 
     # 4. Evaluation
     logging.info("Calculating evaluation metrics...")
