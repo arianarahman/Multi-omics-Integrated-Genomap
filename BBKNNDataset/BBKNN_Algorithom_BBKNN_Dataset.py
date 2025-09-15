@@ -74,8 +74,6 @@ def load_and_prepare_data():
 
     sc.pp.highly_variable_genes(adata, n_top_genes=2000, batch_key=BATCH_KEY)
     adata = adata[:, adata.var.highly_variable]
-    sc.pp.scale(adata, max_value=10)
-    
     return adata
 
 # --- Main Analysis Function ---
@@ -102,11 +100,12 @@ def main():
     logging.info("Running Leiden clustering and generating embeddings...")
     sc.tl.leiden(adata, resolution=0.5)
     sc.tl.umap(adata)
-    sc.tl.tsne(adata, n_pcs=50)
+    sc.tl.tsne(adata, use_rep='X_pca')
     
     true_labels_cat = adata.obs[CELLTYPE_KEY].astype('category').cat.codes
-    plot_embedding(adata.obsm['X_umap'], true_labels_cat, "UMAP", "UMAP_Plot_Algorithm_with_BBKNN_Dataset")
-    plot_embedding(adata.obsm['X_tsne'], true_labels_cat, "t-SNE", "TSNE_Plot_Algorithm_with_BBKNN_Dataset")
+    plot_filename_prefix = "BBKNN_Algorithm_BBKNN_Dataset"
+    plot_embedding(adata.obsm['X_umap'], true_labels_cat, "UMAP", f"UMAP_Plot_{plot_filename_prefix}")
+    plot_embedding(adata.obsm['X_tsne'], true_labels_cat, "t-SNE", f"TSNE_Plot_{plot_filename_prefix}")
 
     # 4. Evaluation
     logging.info("Calculating evaluation metrics...")
@@ -115,15 +114,12 @@ def main():
 
     ari = adjusted_rand_score(true_labels, predicted_labels)
     rand = rand_score(true_labels, predicted_labels)
-
-    # Calculate silhouette score on the UMAP embedding, which reflects the BBKNN correction
-    silhouette = silhouette_score(adata.obsm['X_umap'], predicted_labels)
-    
+    silhouette = silhouette_score(adata.obsm['X_pca'], predicted_labels) 
     logging.info(f"ARI: {ari:.3f}, Rand Index: {rand:.3f}, Silhouette Score: {silhouette:.3f}")
 
-    plot_metrics_bar(ari, rand, silhouette, "BBKNN_Algorithm_With_BBKNN_data")
-    save_metrics_csv(ari, rand, silhouette, "CSV_BBKNN_Algorithm_With_BBKNN_data")
-    
+    plot_metrics_bar(ari, rand, silhouette, f"{plot_filename_prefix}")
+    save_metrics_csv(ari, rand, silhouette, f"CSV_{plot_filename_prefix}")
+
     logging.info("BBKNN analysis complete.")
 
 if __name__ == "__main__":

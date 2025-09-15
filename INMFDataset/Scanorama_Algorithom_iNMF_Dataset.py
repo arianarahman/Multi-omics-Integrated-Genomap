@@ -5,10 +5,14 @@ import numpy as np
 import matplotlib.pyplot as plt
 import scanpy as sc
 import scanorama
+from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import adjusted_rand_score, silhouette_score, rand_score
+import anndata as ad
+import scipy.sparse
 
 # --- Configuration ---
-DATA_FILE = './Dataset/pbmcs_ctrl_converted.h5ad'
+#DATA_FILE = './Dataset/pbmcs_ctrl_converted.h5ad'
+DATA_FILE = './Dataset/pbmcs_ctrl_annotated.h5ad'
 OUTPUT_FOLDER = './Figures_CSVs'
 BATCH_KEY = 'batch'
 CELLTYPE_KEY = 'celltype'
@@ -51,43 +55,45 @@ def save_metrics_csv(ari, rand, silhouette, filename):
     df = pd.DataFrame([{"ARI": ari, "Rand": rand, "Silhouette": silhouette}])
     df.to_csv(os.path.join(OUTPUT_FOLDER, f'{filename}.csv'), index=False)
 
-def load_and_prepare_data_for_scanorama():
+# def load_and_prepare_data():
+#     adata = sc.read(DATA_FILE)
+#     adata.obs_names_make_unique()
+
+#     # # If HVGs already exist in var, use them and skip re-computing
+#     # if "highly_variable" in adata.var:
+#     #     adata = adata[:, adata.var["highly_variable"]].copy()
+#     # else:
+#     #     sc.pp.normalize_total(adata, target_sum=1e4)
+#     #     sc.pp.log1p(adata)
+#     #     sc.pp.highly_variable_genes(adata, n_top_genes=2000)
+#     #     adata = adata[:, adata.var["highly_variable"]].copy()
+
+#     return adata 
+
+def load_and_prepare_data():
     """
-    Loads and preprocesses data using a unified workflow, then splits it by batch for Scanorama.
+    Loads and preprocesses data using a unified workflow
     """
     try:
         adata = sc.read(DATA_FILE)
     except FileNotFoundError:
         logging.error(f"Data file not found at {DATA_FILE}")
-        return None, None
-
-    # Safety check for the batch key
-    if BATCH_KEY not in adata.obs.columns:
-        logging.warning(f"'{BATCH_KEY}' not found in adata.obs. Creating a dummy batch ('batch1').")
-        adata.obs[BATCH_KEY] = 'batch1'
-        adata.obs[BATCH_KEY] = adata.obs[BATCH_KEY].astype('category')
-
+        return None
+    
     # --- Unified Preprocessing Workflow ---
     sc.pp.filter_cells(adata, min_genes=1)
-    
     sc.pp.normalize_total(adata, target_sum=1e4)
     sc.pp.log1p(adata)
 
-    if np.isnan(adata.X.data).any():
-        adata.X.data[np.isnan(adata.X.data)] = 0
-
-    sc.pp.highly_variable_genes(adata, n_top_genes=2000, batch_key=BATCH_KEY)
-    adata = adata[:, adata.var.highly_variable]
-
-    sc.pp.scale(adata, max_value=10)
-
-    # --- Split data by batch for Scanorama ---
-    adatas_list = [adata[adata.obs[BATCH_KEY] == b].copy() for b in adata.obs[BATCH_KEY].cat.categories]
-
-    # Keep track of the original, full cell type labels
-    true_labels_full = adata.obs[CELLTYPE_KEY].copy()
-
-    return adatas_list, true_labels_full
+    # --- MODIFIED: Correctly handle NaNs to avoid TypeError ---
+    if scipy.sparse.issparse(adata.X):
+        if np.isnan(adata.X.data).any():
+            adata.X.data[np.isnan(adata.X.data)] = 0
+    # For dense matrices, only check for NaNs if the dtype is float
+    elif np.issubdtype(adata.X.dtype, np.floating):
+        if np.isnan(adata.X).any():
+            adata.X[np.isnan(adata.X)] = 0
+    return adata
 
 # --- Main Analysis Function ---
 def main():
@@ -96,30 +102,44 @@ def main():
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
     os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
-    logging.info("Loading and preparing data for Scanorama...")
-    adatas_list, true_labels_full = load_and_prepare_data_for_scanorama()
-    if adatas_list is None:
+    logging.info("Loading and preparing data...")
+    adata_raw = load_and_prepare_data()
+    if adata_raw is None:
         return
+    if CELLTYPE_KEY not in adata_raw.obs.columns:
+        logging.error(f"Required column '{CELLTYPE_KEY}' not in adata.obs.")
+        return
+    
+    # 1. Prepare data and run Scanorama for batch correction
+    logging.info("Splitting data by batch for Scanorama...")
+    # MODIFIED: Use the categories for splitting to ensure consistency
+    adatas_list = [adata_raw[adata_raw.obs[BATCH_KEY] == batch].copy() for batch in adata_raw.obs[BATCH_KEY].unique()]
 
-    # 2. Scanorama Integration
-    logging.info("Running Scanorama integration...")
+    logging.info("Running Scanorama for batch correction...")
     adatas_corrected = scanorama.correct_scanpy(adatas_list, return_dimred=True, hvg=2000)
 
-    # Concatenate the corrected results into a single object
-    adata = sc.concat(adatas_corrected, join='outer', label="batch_id")
-    adata.obs[CELLTYPE_KEY] = true_labels_full
+    # Concatenate the corrected data back into a single object
+    adata = ad.concat(adatas_corrected, join='outer', label="post_scanorama_batch_id")
+    adata.obs[CELLTYPE_KEY] = adata_raw.obs.loc[adata.obs_names, CELLTYPE_KEY].astype(str).values
+ 
+    X = adata.obsm['X_scanorama']
+    adata.obsm['X_scanorama'] = StandardScaler().fit_transform(X)    
 
     # 3. Clustering and Visualization
     logging.info("Building neighborhood graph, running Leiden, and generating embeddings...")
     sc.pp.neighbors(adata, use_rep='X_scanorama', n_neighbors=15)
-    sc.tl.leiden(adata, resolution=0.8)
+    sc.tl.leiden(adata, resolution=0.5)
 
+    # UMAP implicitly uses the neighbor graph built on X_scanorama
     sc.tl.umap(adata)
     sc.tl.tsne(adata, use_rep='X_scanorama')
 
     true_labels_cat = adata.obs[CELLTYPE_KEY].astype('category').cat.codes
-    plot_embedding(adata.obsm['X_umap'], true_labels_cat, "UMAP", "UMAP_Plot_Scanorama_iNMF_Dataset")
-    plot_embedding(adata.obsm['X_tsne'], true_labels_cat, "t-SNE", "TSNE_Plot_Scanorama_iNMF_Dataset")
+    
+
+    plot_filename_prefix = "Scanorama_Algorithm_iNMF_Dataset"
+    plot_embedding(adata.obsm['X_umap'], true_labels_cat, "UMAP", f"UMAP_Plot_{plot_filename_prefix}")
+    plot_embedding(adata.obsm['X_tsne'], true_labels_cat, "t-SNE", f"TSNE_Plot_{plot_filename_prefix}")
 
     # 4. Evaluation
     logging.info("Calculating evaluation metrics...")
@@ -128,12 +148,11 @@ def main():
 
     ari = adjusted_rand_score(true_labels, predicted_labels)
     rand = rand_score(true_labels, predicted_labels)
-    silhouette = silhouette_score(adata.obsm['X_umap'], predicted_labels)
-
+    silhouette = silhouette_score(adata.obsm['X_scanorama'], predicted_labels)
     logging.info(f"ARI: {ari:.3f}, Rand Index: {rand:.3f}, Silhouette Score: {silhouette:.3f}")
 
-    plot_metrics_bar(ari, rand, silhouette, "Scanorama_Algorithm_With_iNMF_data")
-    save_metrics_csv(ari, rand, silhouette, "CSV_Scanorama_Algorithm_With_iNMF_data")
+    plot_metrics_bar(ari, rand, silhouette, f"{plot_filename_prefix}")
+    save_metrics_csv(ari, rand, silhouette, f"CSV_{plot_filename_prefix}")
 
     logging.info("Scanorama analysis complete.")
 

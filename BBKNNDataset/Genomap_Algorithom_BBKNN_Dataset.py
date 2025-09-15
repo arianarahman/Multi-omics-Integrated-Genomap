@@ -6,8 +6,9 @@ import matplotlib.pyplot as plt
 import scanpy as sc
 import scanorama
 import anndata as ad
-import genomap.genoDR as gp
 from sklearn.metrics import adjusted_rand_score, silhouette_score, rand_score
+from sklearn.preprocessing import StandardScaler
+import genomap.genoDR as gp
 
 # --- Configuration ---
 DATA_FILE = './Dataset/pancreas.h5ad'
@@ -54,7 +55,6 @@ def save_metrics_csv(ari, rand, silhouette, filename):
     df.to_csv(os.path.join(OUTPUT_FOLDER, f'{filename}.csv'), index=False)
 
 def load_and_prepare_data():
-    """Loads and preprocesses the dataset using a Scanorama workflow."""
     try:
         adata = sc.read(DATA_FILE)
     except FileNotFoundError:
@@ -91,12 +91,36 @@ def main():
     adatas_list = [adata_raw[adata_raw.obs[BATCH_KEY] == batch].copy() for batch in adata_raw.obs[BATCH_KEY].unique()]
     
     logging.info("Running Scanorama for batch correction...")
+        # Note: hvg is set inside correct_scanpy to align genes across batches
     adatas_corrected = scanorama.correct_scanpy(adatas_list, return_dimred=True, hvg=2000)
     
     # Concatenate the corrected data back into a single object
-    adata = ad.concat(adatas_corrected, join='outer', label="post_scanorama_batch_id")
+    adata = ad.concat(adatas_corrected, join='outer', label="batch_id")
 
-    # 2. Apply GenoMap on the corrected data
+
+    # # 2. Apply GenoMap on the corrected data
+    # X = StandardScaler().fit_transform(adata.obsm['X_scanorama'])
+
+    # # choose a grid that matches input dimensionality
+    # D = X.shape[1]              
+    # side = int(np.sqrt(D))
+    # if side * side != D:
+    #     # zero-pad to the next square so we can use a square grid
+    #     newD = side*side if side*side >= D else (side+1)*(side+1)
+    #     pad = np.zeros((X.shape[0], newD - D))
+    #     X = np.hstack([X, pad])
+    #     side = int(np.sqrt(X.shape[1]))
+
+    # adata.obsm['X_genomap'] = gp.genoDR(
+    #     X,
+    #     n_dim=32,                        # give GenoMap more capacity
+    #     n_clusters=adata.obs['celltype'].nunique(),
+    #     colNum=side,
+    #     rowNum=side
+    # )
+
+
+    #2. Apply GenoMap on the corrected data
     n_clusters = adata.obs[CELLTYPE_KEY].nunique()
     logging.info("Applying GenoMap on Scanorama-corrected data...")
     adata.obsm['X_genomap'] = gp.genoDR(
@@ -110,14 +134,15 @@ def main():
     # 3. Clustering and Visualization
     logging.info("Building neighborhood graph, running Leiden, and generating embeddings...")
     sc.pp.neighbors(adata, use_rep='X_genomap', n_neighbors=15)
-    sc.tl.leiden(adata, resolution=0.8)
+    sc.tl.leiden(adata, resolution=0.5)
 
     sc.tl.umap(adata)
     sc.tl.tsne(adata, use_rep='X_genomap')
-    
+
     true_labels_cat = adata.obs[CELLTYPE_KEY].astype('category').cat.codes
-    # Update filenames to reflect the new workflow
-    plot_filename_prefix = "Genomap_Algorithm_With_BBKNN_Dataset"
+    #true_labels = adata.obs[CELLTYPE_KEY].astype('category').cat.codes
+
+    plot_filename_prefix = "Genomap_Algorithm_BBKNN_Dataset"
     plot_embedding(adata.obsm['X_umap'], true_labels_cat, "UMAP", f"UMAP_Plot_{plot_filename_prefix}")
     plot_embedding(adata.obsm['X_tsne'], true_labels_cat, "t-SNE", f"TSNE_Plot_{plot_filename_prefix}")
 
@@ -128,13 +153,11 @@ def main():
 
     ari = adjusted_rand_score(true_labels, predicted_labels)
     rand = rand_score(true_labels, predicted_labels)
-    # Corrected: Calculate silhouette on the embedding used for clustering
-    silhouette = silhouette_score(adata.obsm['X_umap'], predicted_labels)
-    
+    silhouette = silhouette_score(adata.obsm['X_genomap'], predicted_labels)
     logging.info(f"ARI: {ari:.3f}, Rand Index: {rand:.3f}, Silhouette Score: {silhouette:.3f}")
 
-    plot_metrics_bar(ari, rand, silhouette, f"Genomap_Algorithm_With_{plot_filename_prefix}")
-    save_metrics_csv(ari, rand, silhouette, f"CSV_Genomap_Algorithm_With_{plot_filename_prefix}")
+    plot_metrics_bar(ari, rand, silhouette, f"{plot_filename_prefix}")
+    save_metrics_csv(ari, rand, silhouette, f"CSV_{plot_filename_prefix}")
     
     logging.info("GenoMap analysis with BBKNN Dataset complete.")
 

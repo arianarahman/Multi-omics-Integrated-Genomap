@@ -8,7 +8,8 @@ import bbknn
 from sklearn.metrics import adjusted_rand_score, silhouette_score, rand_score
 
 # --- Configuration ---
-DATA_FILE = './Dataset/pbmcs_ctrl_converted.h5ad'
+#DATA_FILE = './Dataset/pbmcs_ctrl_converted.h5ad'
+DATA_FILE = './Dataset/pbmcs_ctrl_annotated.h5ad'
 OUTPUT_FOLDER = './Figures_CSVs'
 BATCH_KEY = 'batch'
 CELLTYPE_KEY = 'celltype'
@@ -52,21 +53,36 @@ def save_metrics_csv(ari, rand, silhouette, filename):
     df.to_csv(os.path.join(OUTPUT_FOLDER, f'{filename}.csv'), index=False)
 
 def load_and_prepare_data():
-    """Loads and preprocesses the dataset using a standard Scanpy workflow."""
-    try:
-        adata = sc.read(DATA_FILE)
-    except FileNotFoundError:
-        logging.error(f"Data file not found at {DATA_FILE}")
-        return None
+    adata = sc.read(DATA_FILE)
+    adata.obs_names_make_unique()
 
-    # --- Standard Preprocessing ---
-    sc.pp.normalize_total(adata, target_sum=1e4)
-    sc.pp.log1p(adata)
-    sc.pp.highly_variable_genes(adata, n_top_genes=2000, batch_key=BATCH_KEY)
-    adata = adata[:, adata.var.highly_variable]
-    sc.pp.scale(adata, max_value=10)
+    # If HVGs already exist in var, use them and skip re-computing
+    if "highly_variable" in adata.var:
+        adata = adata[:, adata.var["highly_variable"]].copy()
+    else:
+        sc.pp.normalize_total(adata, target_sum=1e4)
+        sc.pp.log1p(adata)
+        sc.pp.highly_variable_genes(adata, n_top_genes=2000)
+        adata = adata[:, adata.var["highly_variable"]].copy()
+
+    return adata    
+
+# def load_and_prepare_data():
+#     """Loads and preprocesses the dataset using a standard Scanpy workflow."""
+#     try:
+#         adata = sc.read(DATA_FILE)
+#     except FileNotFoundError:
+#         logging.error(f"Data file not found at {DATA_FILE}")
+#         return None
+
+#     # --- Standard Preprocessing ---
+#     sc.pp.normalize_total(adata, target_sum=1e4)
+#     sc.pp.log1p(adata)
+#     sc.pp.highly_variable_genes(adata, n_top_genes=2000)
+#     adata = adata[:, adata.var.highly_variable]
+#     #sc.pp.scale(adata, max_value=10)
     
-    return adata
+#     return adata
 
 # --- Main Analysis Function ---
 def main():
@@ -89,11 +105,12 @@ def main():
     logging.info("Running Leiden clustering and generating embeddings...")
     sc.tl.leiden(adata, resolution=0.5)
     sc.tl.umap(adata)
-    sc.tl.tsne(adata, n_pcs=50)
-    
+    sc.tl.tsne(adata, use_rep='X_pca')
+
     true_labels_cat = adata.obs[CELLTYPE_KEY].astype('category').cat.codes
-    plot_embedding(adata.obsm['X_umap'], true_labels_cat, "UMAP", "UMAP_Plot_BBKNN_iNMF_Dataset")
-    plot_embedding(adata.obsm['X_tsne'], true_labels_cat, "t-SNE", "TSNE_Plot_BBKNN_iNMF_Dataset")
+    plot_filename_prefix = "BBKNN_Algorithm_iNMF_Dataset"    
+    plot_embedding(adata.obsm['X_umap'], true_labels_cat, "UMAP", f"UMAP_Plot_{plot_filename_prefix}")
+    plot_embedding(adata.obsm['X_tsne'], true_labels_cat, "t-SNE", f"TSNE_Plot_{plot_filename_prefix}")
 
     # 4. Evaluation
     logging.info("Calculating evaluation metrics...")
@@ -102,15 +119,13 @@ def main():
 
     ari = adjusted_rand_score(true_labels, predicted_labels)
     rand = rand_score(true_labels, predicted_labels)
-
-    # FIXED: Calculate silhouette score on the UMAP embedding, which reflects the BBKNN correction
-    silhouette = silhouette_score(adata.obsm['X_umap'], predicted_labels)
-    
+    silhouette = silhouette_score(adata.obsm['X_pca'], predicted_labels)
+    #silhouette = silhouette_score(adata.obsm['X_umap'], predicted_labels)
     logging.info(f"ARI: {ari:.3f}, Rand Index: {rand:.3f}, Silhouette Score: {silhouette:.3f}")
 
-    plot_metrics_bar(ari, rand, silhouette, "BBKNN_Algorithm_With_iNMF_data")
-    save_metrics_csv(ari, rand, silhouette, "CSV_BBKNN_Algorithm_With_iNMF_data")
-    
+    plot_metrics_bar(ari, rand, silhouette, f"{plot_filename_prefix}")
+    save_metrics_csv(ari, rand, silhouette, f"CSV_{plot_filename_prefix}")
+
     logging.info("BBKNN analysis complete.")
 
 if __name__ == "__main__":

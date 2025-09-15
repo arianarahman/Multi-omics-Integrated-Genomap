@@ -5,13 +5,14 @@ import numpy as np
 import matplotlib.pyplot as plt
 import scanpy as sc
 import scanorama
-import anndata as ad
-import genomap.genoDR as gp
 from sklearn.metrics import adjusted_rand_score, silhouette_score, rand_score
+import anndata as ad
 import scipy.sparse
+import genomap.genoDR as gp
 
 # --- Configuration ---
-DATA_FILE = './Dataset/pbmcs_ctrl_converted.h5ad'
+#DATA_FILE = './Dataset/pbmcs_ctrl_converted.h5ad'
+DATA_FILE = './Dataset/pbmcs_ctrl_annotated.h5ad'
 OUTPUT_FOLDER = './Figures_CSVs'
 BATCH_KEY = 'batch'
 CELLTYPE_KEY = 'celltype'
@@ -54,16 +55,31 @@ def save_metrics_csv(ari, rand, silhouette, filename):
     df = pd.DataFrame([{"ARI": ari, "Rand": rand, "Silhouette": silhouette}])
     df.to_csv(os.path.join(OUTPUT_FOLDER, f'{filename}.csv'), index=False)
 
-def load_and_prepare_data():
+# def load_and_prepare_data():
+#     adata = sc.read(DATA_FILE)
+#     adata.obs_names_make_unique()
+
+#     # # If HVGs already exist in var, use them and skip re-computing
+#     # if "highly_variable" in adata.var:
+#     #     adata = adata[:, adata.var["highly_variable"]].copy()
+#     # else:
+#     #     sc.pp.normalize_total(adata, target_sum=1e4)
+#     #     sc.pp.log1p(adata)
+#     #     sc.pp.highly_variable_genes(adata, n_top_genes=2000)
+#     #     adata = adata[:, adata.var["highly_variable"]].copy()
+
+#     return adata 
+
+def load_data():
     """
-    Loads and preprocesses data using a unified workflow similar to the Scanorama script.
+    Loads and preprocesses data using a unified workflow
     """
     try:
         adata = sc.read(DATA_FILE)
     except FileNotFoundError:
         logging.error(f"Data file not found at {DATA_FILE}")
         return None
-    
+        
     # --- Unified Preprocessing Workflow ---
     sc.pp.filter_cells(adata, min_genes=1)
     sc.pp.normalize_total(adata, target_sum=1e4)
@@ -79,11 +95,11 @@ def load_and_prepare_data():
             adata.X[np.isnan(adata.X)] = 0
 
     # ADDED: Highly variable gene selection to match the Scanorama script
-    sc.pp.highly_variable_genes(adata, n_top_genes=2000, batch_key=BATCH_KEY)
-    adata = adata[:, adata.var.highly_variable]
+    #sc.pp.highly_variable_genes(adata, n_top_genes=2000, batch_key=BATCH_KEY)
+    #adata = adata[:, adata.var.highly_variable]
 
     # ADDED: Scaling to match the Scanorama script
-    sc.pp.scale(adata, max_value=10)
+    # sc.pp.scale(adata, max_value=10)
     
     return adata
 
@@ -95,7 +111,7 @@ def main():
     os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
     logging.info("Loading and preparing data...")
-    adata_raw = load_and_prepare_data()
+    adata_raw = load_data()
     if adata_raw is None:
         return
     if CELLTYPE_KEY not in adata_raw.obs.columns:
@@ -112,34 +128,26 @@ def main():
 
     # Concatenate the corrected data back into a single object
     adata = ad.concat(adatas_corrected, join='outer', label="post_scanorama_batch_id")
-    
-    # Ensure original celltype labels are preserved correctly after concatenation
+    #adata.obs[CELLTYPE_KEY] = adata_raw.obs.loc[adata.obs_names, CELLTYPE_KEY].astype(str).values
     adata.obs[CELLTYPE_KEY] = adata_raw.obs[CELLTYPE_KEY].copy()
 
-
     # 2. Apply GenoMap on the corrected data
-    n_clusters = adata.obs[CELLTYPE_KEY].nunique()
+    #n_clusters = adata.obs[CELLTYPE_KEY].nunique()
+    n_clusters = 8
     logging.info("Applying GenoMap on Scanorama-corrected data...")
-    adata.obsm['X_genomap'] = gp.genoDR(
-        adata.obsm['X_scanorama'], 
-        n_dim=32, 
-        n_clusters=n_clusters, 
-        colNum=33, 
-        rowNum=33
-    )
+    adata.obsm['X_genomap'] = gp.genoDR(adata.obsm['X_scanorama'], n_dim=32, n_clusters=n_clusters, colNum=33, rowNum=33)
 
     # 3. Clustering and Visualization (Post-processing)
-    # This sequence is now identical in structure to the Scanorama script,
-    # but critically uses 'X_genomap' to evaluate the GenoMap algorithm's output.
     logging.info("Building neighborhood graph, running Leiden, and generating embeddings...")
     sc.pp.neighbors(adata, use_rep='X_genomap', n_neighbors=15)
-    sc.tl.leiden(adata, resolution=0.8)
+    sc.tl.leiden(adata, resolution=0.5)
     # UMAP implicitly uses the neighbor graph built on X_genomap
     sc.tl.umap(adata)
     sc.tl.tsne(adata, use_rep='X_genomap')
     
     true_labels_cat = adata.obs[CELLTYPE_KEY].astype('category').cat.codes
-    plot_filename_prefix = "Genomap_ScanoramaPipeline_iNMF_Dataset_Aligned"
+
+    plot_filename_prefix = "Genomap_Algorithm_iNMF_Dataset"
     plot_embedding(adata.obsm['X_umap'], true_labels_cat, "UMAP", f"UMAP_Plot_{plot_filename_prefix}")
     plot_embedding(adata.obsm['X_tsne'], true_labels_cat, "t-SNE", f"TSNE_Plot_{plot_filename_prefix}")
 
@@ -150,14 +158,13 @@ def main():
 
     ari = adjusted_rand_score(true_labels, predicted_labels)
     rand = rand_score(true_labels, predicted_labels)
-    silhouette = silhouette_score(adata.obsm['X_umap'], predicted_labels)
-    
+    silhouette = silhouette_score(adata.obsm['X_genomap'], predicted_labels)
     logging.info(f"ARI: {ari:.3f}, Rand Index: {rand:.3f}, Silhouette Score: {silhouette:.3f}")
 
-    plot_metrics_bar(ari, rand, silhouette, f"Genomap_Algorithm_With_{plot_filename_prefix}")
-    save_metrics_csv(ari, rand, silhouette, f"CSV_Genomap_Algorithm_With_{plot_filename_prefix}")
+    plot_metrics_bar(ari, rand, silhouette, f"{plot_filename_prefix}")
+    save_metrics_csv(ari, rand, silhouette, f"CSV_{plot_filename_prefix}")
     
-    logging.info("GenoMap analysis with Scanorama pipeline complete.")
+    logging.info("GenoMap analysis complete.")
 
 if __name__ == "__main__":
     main()

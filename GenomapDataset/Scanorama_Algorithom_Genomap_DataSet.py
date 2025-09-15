@@ -3,7 +3,6 @@ import logging
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from sklearn.impute import SimpleImputer
 from sklearn.metrics import adjusted_rand_score, silhouette_score, rand_score
 import anndata as ad
 import scipy.io as sio
@@ -55,16 +54,15 @@ def save_metrics_csv(ari, rand, silhouette, filename):
     df = pd.DataFrame([{"ARI": ari, "Rand": rand, "Silhouette": silhouette}])
     df.to_csv(os.path.join(OUTPUT_FOLDER, f'{filename}.csv'), index=False)
 
-def load_and_prepare_data_for_scanorama():
-    """Loads all .mat files and returns a list of AnnData objects for Scanorama."""
+def load_data():
+    """Loads all .mat files into a list of AnnData objects and loads labels."""
     adatas = []
     for file in DATA_FILES:
         data_dict = sio.loadmat(os.path.join(DATA_FOLDER, file))
         key = next((k for k in data_dict if 'data' in k.lower()), None)
         if key:
-            # For Scanorama, we preprocess each batch individually first
+            # Perform basic preprocessing on each batch individually
             adata_batch = ad.AnnData(data_dict[key])
-            #adata_batch.X = SimpleImputer(strategy="mean").fit_transform(adata_batch.X)
             sc.pp.normalize_total(adata_batch, target_sum=1e4)
             sc.pp.log1p(adata_batch)
             adatas.append(adata_batch)
@@ -72,7 +70,7 @@ def load_and_prepare_data_for_scanorama():
             logging.warning(f"No valid data key found in {file}")
 
     class_labels = sio.loadmat(os.path.join(DATA_FOLDER, CLASS_LABEL_FILE))['classLabel'].squeeze()
-    
+
     return adatas, class_labels
 
 # --- Main Analysis Function ---
@@ -82,27 +80,29 @@ def main():
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
     os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
-    # 1. Load and Prepare Data (Scanorama requires a list of AnnData objects)
-    logging.info("Loading and preparing data for Scanorama...")
-    adatas_list, class_labels = load_and_prepare_data_for_scanorama()
+    # 1. Load Data
+    logging.info("Loading and preparing data...")
+    adatas_list, class_labels = load_data()
 
     # 2. Apply Scanorama Integration
-    logging.info("Running Scanorama integration...")
+    # This is now the FIRST major processing step.
+    # Scanorama internally handles HVG selection with the `hvg` parameter.
+    logging.info("Running Scanorama for batch correction...")
     # The `correct_scanpy` function is convenient and returns a list of corrected AnnData objects
     adatas_corrected = scanorama.correct_scanpy(adatas_list, return_dimred=True, hvg=2000)
     
-    # Concatenate the corrected results into a single object for downstream analysis
-    adata = ad.concat(adatas_corrected, join='outer', label="batch")
+    # 3. Concatenate the corrected results into a single object for downstream analysis
+    logging.info("Constructing unified AnnData object from corrected data...")
+    adata = ad.concat(adatas_corrected, join='outer', label="batch_id")
     
     # Ensure labels match the number of cells after integration
     limit = min(adata.n_obs, len(class_labels))
     adata = adata[:limit, :].copy()
     adata.obs['class'] = class_labels[:limit]
     
-    # The integrated embedding is in adata.obsm['X_scanorama']
 
-    # 3. Clustering and Visualization (Standardized)
-    logging.info("Building neighborhood graph and running Leiden clustering on Scanorama result...")
+    # 4. Clustering and Visualization
+    logging.info("Building neighborhood graph and running Leiden clustering...")
     sc.pp.neighbors(adata, use_rep='X_scanorama', n_neighbors=15)
     sc.tl.leiden(adata, resolution=0.5)
 
@@ -111,10 +111,11 @@ def main():
     sc.tl.tsne(adata, use_rep='X_scanorama')
 
     # Plotting based on true class labels for visual inspection
-    plot_embedding(adata.obsm['X_umap'], adata.obs['class'].astype('category').cat.codes, "UMAP", "UMAP_Plot_Scanorama_Algorithm")
-    plot_embedding(adata.obsm['X_tsne'], adata.obs['class'].astype('category').cat.codes, "t-SNE", "TSNE_Plot_Scanorama_Algorithm")
+    plot_filename_prefix = "Scanorama_Algorithm_Genomap_Dataset"
+    plot_embedding(adata.obsm['X_umap'], adata.obs['class'].astype('category').cat.codes, "UMAP", f"UMAP_Plot_{plot_filename_prefix}")
+    plot_embedding(adata.obsm['X_tsne'], adata.obs['class'].astype('category').cat.codes, "t-SNE", f"TSNE_Plot_{plot_filename_prefix}")
 
-    # 4. Evaluation (Standardized)
+    # 5. Evaluation
     logging.info("Calculating evaluation metrics...")
     true_labels = adata.obs['class']
     predicted_labels = adata.obs['leiden']
@@ -122,11 +123,10 @@ def main():
     ari = adjusted_rand_score(true_labels, predicted_labels)
     rand = rand_score(true_labels, predicted_labels)
     silhouette = silhouette_score(adata.obsm['X_scanorama'], predicted_labels)
-    
     logging.info(f"ARI: {ari:.3f}, Rand Index: {rand:.3f}, Silhouette Score: {silhouette:.3f}")
 
-    plot_metrics_bar(ari, rand, silhouette, "Scanorama_Algorithm_With_Genomap_data")
-    save_metrics_csv(ari, rand, silhouette, "CSV_Scanorama_Algorithm_With_Genomap_data")
+    plot_metrics_bar(ari, rand, silhouette, plot_filename_prefix)
+    save_metrics_csv(ari, rand, silhouette, f"CSV_{plot_filename_prefix}")
     
     logging.info("Scanorama analysis complete.")
 

@@ -117,15 +117,16 @@ def main():
     # 3. Clustering and Visualization (Standardized)
     logging.info("Building neighborhood graph and running Leiden clustering on iNMF result...")
     sc.pp.neighbors(adata, use_rep='X_nmf', n_neighbors=15)
-    sc.tl.leiden(adata, resolution=0.8)
+    sc.tl.leiden(adata, resolution=0.5)
 
     logging.info("Generating UMAP and t-SNE plots...")
     sc.tl.umap(adata)
     sc.tl.tsne(adata, use_rep='X_nmf')
 
     # Plotting based on true class labels for visual inspection
-    plot_embedding(adata.obsm['X_umap'], adata.obs['class'].astype('category').cat.codes, "UMAP", "UMAP_Plot_iNMF_Algorithm")
-    plot_embedding(adata.obsm['X_tsne'], adata.obs['class'].astype('category').cat.codes, "t-SNE", "TSNE_Plot_iNMF_Algorithm")
+    plot_filename_prefix = "iNMF_Algorithm_Genomap_Dataset"
+    plot_embedding(adata.obsm['X_umap'], adata.obs['class'].astype('category').cat.codes, "UMAP", f"UMAP_Plot_{plot_filename_prefix}")
+    plot_embedding(adata.obsm['X_tsne'], adata.obs['class'].astype('category').cat.codes, "t-SNE", f"TSNE_Plot_{plot_filename_prefix}")
 
     # 4. Evaluation (Standardized)
     logging.info("Calculating evaluation metrics...")
@@ -138,9 +139,9 @@ def main():
     
     logging.info(f"ARI: {ari:.3f}, Rand Index: {rand:.3f}, Silhouette Score: {silhouette:.3f}")
 
-    plot_metrics_bar(ari, rand, silhouette, "iNMF_Algorithm_With_Genomap_data")
-    save_metrics_csv(ari, rand, silhouette, "CSV_iNMF_Algorithm_With_Genomap_data")
-    
+    plot_metrics_bar(ari, rand, silhouette, f"{plot_filename_prefix}")
+    save_metrics_csv(ari, rand, silhouette, f"CSV_{plot_filename_prefix}")
+
     logging.info("iNMF analysis complete.")
 
 if __name__ == "__main__":

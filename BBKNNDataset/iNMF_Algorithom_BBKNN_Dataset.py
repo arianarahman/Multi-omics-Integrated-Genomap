@@ -75,7 +75,7 @@ def load_and_prepare_data():
     
     # --- NEW: Added data scaling ---
     # This step centers the data, which is a standard practice.
-    sc.pp.scale(adata, max_value=10)
+    #sc.pp.scale(adata, max_value=10)
     
     return adata
 
@@ -104,7 +104,7 @@ def main():
     # -----------------------------------------------------------
 
     n_components = 30
-    model = NMF(n_components=n_components, init='nndsvda', random_state=42, max_iter=500)
+    model = NMF(n_components=n_components, init='nndsvda', random_state=0, max_iter=500)
     adata.obsm['X_nmf'] = model.fit_transform(adata.X)
 
     # 3. Clustering and Visualization
@@ -115,8 +115,9 @@ def main():
     sc.tl.tsne(adata, use_rep='X_nmf')
     
     true_labels_cat = adata.obs[CELLTYPE_KEY].astype('category').cat.codes
-    plot_embedding(adata.obsm['X_umap'], true_labels_cat, "UMAP", "UMAP_Plot_iNMF_BBKNN_Dataset")
-    plot_embedding(adata.obsm['X_tsne'], true_labels_cat, "t-SNE", "TSNE_Plot_iNMF_BBKNN_Dataset")
+    plot_filename_prefix = "iNMF_Algorithm_BBKNN_Dataset"
+    plot_embedding(adata.obsm['X_umap'], true_labels_cat, "UMAP", f"UMAP_Plot_{plot_filename_prefix}")
+    plot_embedding(adata.obsm['X_tsne'], true_labels_cat, "t-SNE", f"TSNE_Plot_{plot_filename_prefix}")
 
     # 4. Evaluation
     logging.info("Calculating evaluation metrics...")
@@ -125,13 +126,13 @@ def main():
 
     ari = adjusted_rand_score(true_labels, predicted_labels)
     rand = rand_score(true_labels, predicted_labels)
-    silhouette = silhouette_score(adata.obsm['X_umap'], predicted_labels)
+    silhouette = silhouette_score(adata.obsm['X_nmf'], predicted_labels)
     
     logging.info(f"ARI: {ari:.3f}, Rand Index: {rand:.3f}, Silhouette Score: {silhouette:.3f}")
 
-    plot_metrics_bar(ari, rand, silhouette, "iNMF_Algorithm_With_BBKNN_data")
-    save_metrics_csv(ari, rand, silhouette, "CSV_iNMF_Algorithm_With_BBKNN_data")
-    
+    plot_metrics_bar(ari, rand, silhouette, f"{plot_filename_prefix}")
+    save_metrics_csv(ari, rand, silhouette, f"CSV_{plot_filename_prefix}")
+
     logging.info("iNMF analysis complete.")
 
 if __name__ == "__main__":

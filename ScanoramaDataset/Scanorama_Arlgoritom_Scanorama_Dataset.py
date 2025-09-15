@@ -99,7 +99,7 @@ def main():
     
     # --- 3. DOWNSTREAM ANALYSIS ---
     logging.info("Running downstream analysis...")
-    sc.pp.neighbors(adata_integrated, use_rep='X_scanorama', n_neighbors=10)
+    sc.pp.neighbors(adata_integrated, use_rep='X_scanorama', n_neighbors=15)
     sc.tl.leiden(adata_integrated, resolution=0.5)
     sc.tl.umap(adata_integrated)
     sc.tl.tsne(adata_integrated, use_rep='X_scanorama')
@@ -108,18 +108,18 @@ def main():
     true_labels = adata_integrated.obs['celltype'].astype('category').cat.codes.to_numpy()
     cluster_labels = adata_integrated.obs['leiden'].astype('category').cat.codes.to_numpy()
 
-    plot_embedding(adata_integrated.obsm['X_umap'], true_labels, "UMAP", "UMAP_Plot_Scanorama_Algorithm_Scanorama_Dataset")
-    plot_embedding(adata_integrated.obsm['X_tsne'], true_labels, "t-SNE", "t-SNE_Plot_Scanorama_Algorithm_Scanorama_Dataset")
+    plot_filename_prefix = "Scanorama_Algorithm_Scanorama_Dataset"
+    plot_embedding(adata_integrated.obsm['X_umap'], true_labels, "UMAP", f"UMAP_Plot_{plot_filename_prefix}")
+    plot_embedding(adata_integrated.obsm['X_tsne'], true_labels, "t-SNE", f"t-SNE_Plot_{plot_filename_prefix}")
 
     ari = adjusted_rand_score(true_labels, cluster_labels)
     rand = rand_score(true_labels, cluster_labels)
-    # FIXED: Calculate silhouette score on the UMAP embedding for fair comparison
-    silhouette = silhouette_score(adata_integrated.obsm['X_umap'], cluster_labels)
+    silhouette = silhouette_score(adata_integrated.obsm['X_scanorama'], cluster_labels)
 
     logging.info(f"ARI: {ari:.3f}, Rand Index: {rand:.3f}, Silhouette Score: {silhouette:.3f}")
 
-    plot_metrics_bar(ari, rand, silhouette, "Scanorama_Algorithm_Scanorama_Dataset")
-    save_metrics_csv(ari, rand, silhouette, "CSV_Scanorama_Algorithm_Scanorama_Dataset")
+    plot_metrics_bar(ari, rand, silhouette, f"{plot_filename_prefix}")
+    save_metrics_csv(ari, rand, silhouette, f"CSV_{plot_filename_prefix}")
 
     logging.info("Analysis complete.")
 
