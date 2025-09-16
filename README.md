@@ -28,17 +28,17 @@ Running ScanoramaDataset Python Code:
 4. Run the Python scripts from within the ScanoramaDataset folder.
 
 
-├── BBKNNDataset/
-│ ├── Dataset/
-│ └── (Python scripts)
-├── GenomapDataset/
-│ ├── Dataset/
-│ └── (Python scripts)
-├── INMFDataset/
-│ ├── Dataset/
-│ └── (Python scripts)
-└── ScanoramaDataset/
-├── Dataset/
-└── (Python scripts)
+├── BBKNNDataset/       
+│ ├── Dataset/          
+│ └── (Python scripts)     
+├── GenomapDataset/      
+│ ├── Dataset/           
+│ └── (Python scripts)    
+├── INMFDataset/       
+│ ├── Dataset/         
+│ └── (Python scripts)      
+└── ScanoramaDataset/     
+├── Dataset/          
+└── (Python scripts)      
 
 
