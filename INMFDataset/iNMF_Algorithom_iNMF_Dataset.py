@@ -3,9 +3,12 @@ import logging
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.cm as cm
+from matplotlib.patches import Patch
 import scanpy as sc
 from sklearn.decomposition import NMF
 from sklearn.metrics import adjusted_rand_score, silhouette_score, rand_score
+
 
 # --- Configuration ---
 #DATA_FILE = './Dataset/pbmcs_ctrl_converted.h5ad'
@@ -16,11 +19,34 @@ BATCH_KEY = 'batch'
 CELLTYPE_KEY = 'celltype'
 
 # --- Helper Functions (Standardized) ---
-def plot_embedding(X, y, title, filename):
+def create_custom_colormap(labels, colors):
+    """
+    Creates a custom color mapping dictionary and a list of legend patches.
+    """
+    label_to_color = dict(zip(labels, colors))
+    legend_handles = [Patch(color=label_to_color[label], label=label) for label in labels]
+    return label_to_color, legend_handles
+
+# --- Helper Functions (Standardized) ---
+def plot_embedding(X, y, title, filename, custom_colors=None):
     """Generates and saves a 2D scatter plot of an embedding."""
     X, y = np.asarray(X), np.asarray(y)
     plt.figure()
-    plt.scatter(X[:, 0], X[:, 1], c=y, cmap='jet', s=18)
+
+    if custom_colors:
+        unique_labels = np.unique(y)
+        for label in unique_labels:
+            indices = np.where(y == label)
+            plt.scatter(X[indices, 0], X[indices, 1],
+                        color=custom_colors.get(label),
+                        label=label,
+                        s=18)
+
+        # Add legend outside the plot
+        #plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize='small')
+    else:
+        plt.scatter(X[:, 0], X[:, 1], c=y, cmap='jet', s=18)
+
     plt.xlabel(f'{title} Dimension 1', fontsize=8)
     plt.ylabel(f'{title} Dimension 2', fontsize=8)
     plt.title(filename, fontsize=10)
@@ -67,27 +93,7 @@ def load_and_prepare_data():
         adata = adata[:, adata.var["highly_variable"]].copy()
 
     return adata    
-# def load_and_prepare_data():
-#     """Loads and preprocesses the PBMC dataset."""
-#     try:
-#         adata = sc.read(DATA_FILE)
-#     except FileNotFoundError:
-#         logging.error(f"Data file not found at {DATA_FILE}")
-#         return None
 
-#     # --- Standard Preprocessing ---
-#     sc.pp.normalize_total(adata, target_sum=1e4)
-#     sc.pp.log1p(adata)
-#     sc.pp.highly_variable_genes(adata, n_top_genes=2000, batch_key=BATCH_KEY)
-#     adata = adata[:, adata.var.highly_variable]
-#     # NMF requires non-negative data. The log1p data is already non-negative.
-#     # No scaling is applied before NMF as it can create negative values.
-    
-#     # --- Added data scaling ---
-#     # This step centers the data, which is a standard practice.
-#     #sc.pp.scale(adata, max_value=10) 
-
-#     return adata
 
 # --- Main Analysis Function ---
 def main():
@@ -123,12 +129,21 @@ def main():
     sc.tl.leiden(adata, resolution=0.5)
     sc.tl.umap(adata)
     sc.tl.tsne(adata, use_rep='X_nmf') # Add t-SNE calculation
-    
-    true_labels_cat = adata.obs[CELLTYPE_KEY].astype('category').cat.codes
 
-    plot_filename_prefix = "iNMF_Algorithm_iNMF_Dataset"
-    plot_embedding(adata.obsm['X_umap'], true_labels_cat, "UMAP", f"UMAP_Plot_{plot_filename_prefix}")
-    plot_embedding(adata.obsm['X_tsne'], true_labels_cat, "t-SNE", f"TSNE_Plot_{plot_filename_prefix}")
+    # Get the unique labels from your data
+    unique_labels = sorted(list(np.unique(adata.obs[CELLTYPE_KEY])))
+    num_labels = len(unique_labels)
+    # Dynamically generate colors from a matplotlib colormap
+    colors = cm.get_cmap('tab20', num_labels)
+    colors_list = [colors(i) for i in range(num_labels)]
+    # Create the custom color map dictionary
+    label_to_color_map, _ = create_custom_colormap(unique_labels, colors_list)
+
+    plot_filename_prefix = "iNMF_Algorithm_iNMF_Dataset" 
+    # Use the new plotting function with the custom colormap
+    plot_embedding(adata.obsm['X_umap'], adata.obs[CELLTYPE_KEY].astype(str), "UMAP", f"UMAP_Plot_{plot_filename_prefix}", custom_colors=label_to_color_map)
+    plot_embedding(adata.obsm['X_tsne'], adata.obs[CELLTYPE_KEY].astype(str), "t-SNE", f"TSNE_Plot_{plot_filename_prefix}", custom_colors=label_to_color_map)
+
 
     # 4. Evaluation
     logging.info("Calculating evaluation metrics...")

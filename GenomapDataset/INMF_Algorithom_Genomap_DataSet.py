@@ -3,7 +3,8 @@ import logging
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from sklearn.impute import SimpleImputer
+import matplotlib.cm as cm
+from matplotlib.patches import Patch
 from sklearn.decomposition import NMF
 from sklearn.metrics import adjusted_rand_score, silhouette_score, rand_score
 import anndata as ad
@@ -18,11 +19,35 @@ CLASS_LABEL_FILE = 'classLabel.mat'
 BATCH_LABEL_FILE = 'batchLabel.mat'
 
 # --- Helper Functions (Standardized) ---
-def plot_embedding(X, y, title, filename):
-    """Generates and saves a 2D scatter plot of an embedding."""
+def create_custom_colormap(labels, colors):
+    """
+    Creates a custom color mapping dictionary and a list of legend patches.
+    """
+    label_to_color = dict(zip(labels, colors))
+    legend_handles = [Patch(color=label_to_color[label], label=label) for label in labels]
+    return label_to_color, legend_handles
+
+def plot_embedding(X, y, title, filename, custom_colors=None):
+    """
+    Generates and saves a 2D scatter plot of an embedding with a custom legend.
+    """
     X, y = np.asarray(X), np.asarray(y)
     plt.figure()
-    plt.scatter(X[:, 0], X[:, 1], c=y, cmap='jet', s=18)
+
+    if custom_colors:
+        unique_labels = np.unique(y)
+        for label in unique_labels:
+            indices = np.where(y == label)
+            plt.scatter(X[indices, 0], X[indices, 1],
+                        color=custom_colors.get(label),
+                        label=label,
+                        s=18)
+
+        # Add legend outside the plot
+        #plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize='small')
+    else:
+        plt.scatter(X[:, 0], X[:, 1], c=y, cmap='jet', s=18)
+
     plt.xlabel(f'{title} Dimension 1', fontsize=8)
     plt.ylabel(f'{title} Dimension 2', fontsize=8)
     plt.title(filename, fontsize=10)
@@ -55,7 +80,7 @@ def save_metrics_csv(ari, rand, silhouette, filename):
     df = pd.DataFrame([{"ARI": ari, "Rand": rand, "Silhouette": silhouette}])
     df.to_csv(os.path.join(OUTPUT_FOLDER, f'{filename}.csv'), index=False)
 
-def load_and_prepare_data():
+def load_data():
     """Loads all .mat files, combines them into a single AnnData object, and performs initial preprocessing."""
     adatas = []
     for file in DATA_FILES:
@@ -85,7 +110,7 @@ def load_and_prepare_data():
     sc.pp.normalize_total(adata, target_sum=1e4)
     sc.pp.log1p(adata)
     
-    return adata
+    return adata, class_labels
 
 # --- Main Analysis Function ---
 def main():
@@ -96,7 +121,17 @@ def main():
 
     # 1. Load and Prepare Data (Standardized)
     logging.info("Loading and preparing data...")
-    adata = load_and_prepare_data()
+    adata, class_labels = load_data()
+
+    # Create a mapping from numerical labels to class names
+    class_name_map = {
+        1: 'MHC class II', 2: 'acinare', 3: 'ductal', 4: 'gamma', 5: 'macrophage', 6: 'alpha', 
+        7: 'beta', 8: 'endothelial', 9: 'epsilon', 10: 'mast', 11: 'mesenchymal', 12: 'stellate', 
+        13: 'delta', 14: 'schwann'
+    }
+
+    # Map the numerical labels to their corresponding names
+    mapped_labels = np.array([class_name_map.get(lbl, f'Unknown-{lbl}') for lbl in class_labels])
 
     # 2. Apply iNMF on Highly Variable Genes
     logging.info("Finding HVGs and applying iNMF...")
@@ -114,6 +149,11 @@ def main():
     # Run NMF on the HVG-selected data
     adata.obsm['X_nmf'] = model.fit_transform(adata_hvg.X)
 
+    # Ensure labels match the number of cells after integration
+    limit = min(adata.n_obs, len(mapped_labels))
+    adata = adata[:limit, :].copy()
+    adata.obs['class'] = mapped_labels[:limit]
+
     # 3. Clustering and Visualization (Standardized)
     logging.info("Building neighborhood graph and running Leiden clustering on iNMF result...")
     sc.pp.neighbors(adata, use_rep='X_nmf', n_neighbors=15)
@@ -123,10 +163,26 @@ def main():
     sc.tl.umap(adata)
     sc.tl.tsne(adata, use_rep='X_nmf')
 
-    # Plotting based on true class labels for visual inspection
+    # Get the unique labels from the data
+    unique_labels = sorted(list(np.unique(adata.obs['class'])))
+    num_labels = len(unique_labels)
+    # Dynamically generate colors from a matplotlib colormap
+    colors = cm.get_cmap('tab20', num_labels)
+    colors_list = [colors(i) for i in range(num_labels)]
+    # Create the custom color map dictionary
+    label_to_color_map, _ = create_custom_colormap(unique_labels, colors_list)
+
     plot_filename_prefix = "iNMF_Algorithm_Genomap_Dataset"
-    plot_embedding(adata.obsm['X_umap'], adata.obs['class'].astype('category').cat.codes, "UMAP", f"UMAP_Plot_{plot_filename_prefix}")
-    plot_embedding(adata.obsm['X_tsne'], adata.obs['class'].astype('category').cat.codes, "t-SNE", f"TSNE_Plot_{plot_filename_prefix}")
+    
+    # Use the new plotting function with the custom colormap
+    plot_embedding(adata.obsm['X_umap'], adata.obs['class'].astype(str), "UMAP", f"UMAP_Plot_{plot_filename_prefix}", custom_colors=label_to_color_map)
+    plot_embedding(adata.obsm['X_tsne'], adata.obs['class'].astype(str), "t-SNE", f"TSNE_Plot_{plot_filename_prefix}", custom_colors=label_to_color_map)
+
+
+    # # Plotting based on true class labels for visual inspection
+    # plot_filename_prefix = "iNMF_Algorithm_Genomap_Dataset"
+    # plot_embedding(adata.obsm['X_umap'], adata.obs['class'].astype('category').cat.codes, "UMAP", f"UMAP_Plot_{plot_filename_prefix}")
+    # plot_embedding(adata.obsm['X_tsne'], adata.obs['class'].astype('category').cat.codes, "t-SNE", f"TSNE_Plot_{plot_filename_prefix}")
 
     # 4. Evaluation (Standardized)
     logging.info("Calculating evaluation metrics...")

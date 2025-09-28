@@ -3,26 +3,54 @@ import logging
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import scanpy as sc
-import scanorama
+import matplotlib.cm as cm
+from matplotlib.patches import Patch
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import adjusted_rand_score, silhouette_score, rand_score
+import scanpy as sc
+import scanorama
 import anndata as ad
 import scipy.sparse
 
+
 # --- Configuration ---
-#DATA_FILE = './Dataset/pbmcs_ctrl_converted.h5ad'
 DATA_FILE = './Dataset/pbmcs_ctrl_annotated.h5ad'
 OUTPUT_FOLDER = './Figures_CSVs'
 BATCH_KEY = 'batch'
 CELLTYPE_KEY = 'celltype'
 
+
 # --- Helper Functions (Standardized) ---
-def plot_embedding(X, y, title, filename):
-    """Generates and saves a 2D scatter plot of an embedding."""
+def create_custom_colormap(labels, colors):
+    """
+    Creates a custom color mapping dictionary and a list of legend patches.
+    """
+    label_to_color = dict(zip(labels, colors))
+    legend_handles = [Patch(color=label_to_color[label], label=label) for label in labels]
+    return label_to_color, legend_handles
+
+
+def plot_embedding(X, y, title, filename, custom_colors=None):
+    """
+    Generates and saves a 2D scatter plot of an embedding with a custom legend.
+    """
     X, y = np.asarray(X), np.asarray(y)
     plt.figure()
-    plt.scatter(X[:, 0], X[:, 1], c=y, cmap='jet', s=18)
+
+    if custom_colors:
+        unique_labels = np.unique(y)
+        for label in unique_labels:
+            indices = np.where(y == label)
+            plt.scatter(X[indices, 0], X[indices, 1],
+                        color=custom_colors.get(label),
+                        label=label,
+                        s=18)
+
+        # Add legend outside the plot
+        #plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize='small')
+    else:
+        plt.scatter(X[:, 0], X[:, 1], c=y, cmap='jet', s=18)
+
     plt.xlabel(f'{title} Dimension 1', fontsize=8)
     plt.ylabel(f'{title} Dimension 2', fontsize=8)
     plt.title(filename, fontsize=10)
@@ -32,6 +60,7 @@ def plot_embedding(X, y, title, filename):
     plt.tight_layout()
     plt.savefig(os.path.join(OUTPUT_FOLDER, f'{filename}.png'), dpi=300)
     plt.close()
+
 
 def plot_metrics_bar(ari, rand, silhouette, filename_prefix):
     """Generates and saves a bar chart of evaluation metrics."""
@@ -50,25 +79,12 @@ def plot_metrics_bar(ari, rand, silhouette, filename_prefix):
     plt.savefig(os.path.join(OUTPUT_FOLDER, f"ARI_RI_SC_Metrics_For_{filename_prefix}.png"), dpi=300)
     plt.close()
 
+
 def save_metrics_csv(ari, rand, silhouette, filename):
     """Saves evaluation metrics to a CSV file."""
     df = pd.DataFrame([{"ARI": ari, "Rand": rand, "Silhouette": silhouette}])
     df.to_csv(os.path.join(OUTPUT_FOLDER, f'{filename}.csv'), index=False)
 
-# def load_and_prepare_data():
-#     adata = sc.read(DATA_FILE)
-#     adata.obs_names_make_unique()
-
-#     # # If HVGs already exist in var, use them and skip re-computing
-#     # if "highly_variable" in adata.var:
-#     #     adata = adata[:, adata.var["highly_variable"]].copy()
-#     # else:
-#     #     sc.pp.normalize_total(adata, target_sum=1e4)
-#     #     sc.pp.log1p(adata)
-#     #     sc.pp.highly_variable_genes(adata, n_top_genes=2000)
-#     #     adata = adata[:, adata.var["highly_variable"]].copy()
-
-#     return adata 
 
 def load_and_prepare_data():
     """
@@ -95,6 +111,7 @@ def load_and_prepare_data():
             adata.X[np.isnan(adata.X)] = 0
     return adata
 
+
 # --- Main Analysis Function ---
 def main():
     """Main function to run the Scanorama analysis workflow."""
@@ -112,7 +129,6 @@ def main():
     
     # 1. Prepare data and run Scanorama for batch correction
     logging.info("Splitting data by batch for Scanorama...")
-    # MODIFIED: Use the categories for splitting to ensure consistency
     adatas_list = [adata_raw[adata_raw.obs[BATCH_KEY] == batch].copy() for batch in adata_raw.obs[BATCH_KEY].unique()]
 
     logging.info("Running Scanorama for batch correction...")
@@ -134,12 +150,20 @@ def main():
     sc.tl.umap(adata)
     sc.tl.tsne(adata, use_rep='X_scanorama')
 
-    true_labels_cat = adata.obs[CELLTYPE_KEY].astype('category').cat.codes
-    
+    # Get the unique labels from your data
+    unique_labels = sorted(list(np.unique(adata.obs[CELLTYPE_KEY])))
+    num_labels = len(unique_labels)
+    # Dynamically generate colors from a matplotlib colormap
+    colors = cm.get_cmap('tab20', num_labels)
+    colors_list = [colors(i) for i in range(num_labels)]
+    # Create the custom color map dictionary
+    label_to_color_map, _ = create_custom_colormap(unique_labels, colors_list)
 
     plot_filename_prefix = "Scanorama_Algorithm_iNMF_Dataset"
-    plot_embedding(adata.obsm['X_umap'], true_labels_cat, "UMAP", f"UMAP_Plot_{plot_filename_prefix}")
-    plot_embedding(adata.obsm['X_tsne'], true_labels_cat, "t-SNE", f"TSNE_Plot_{plot_filename_prefix}")
+    
+    # Use the new plotting function with the custom colormap
+    plot_embedding(adata.obsm['X_umap'], adata.obs[CELLTYPE_KEY].astype(str), "UMAP", f"UMAP_Plot_{plot_filename_prefix}", custom_colors=label_to_color_map)
+    plot_embedding(adata.obsm['X_tsne'], adata.obs[CELLTYPE_KEY].astype(str), "t-SNE", f"TSNE_Plot_{plot_filename_prefix}", custom_colors=label_to_color_map)
 
     # 4. Evaluation
     logging.info("Calculating evaluation metrics...")

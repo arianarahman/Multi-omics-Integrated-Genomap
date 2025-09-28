@@ -4,17 +4,50 @@ import numpy as np
 import pandas as pd
 import anndata as ad
 import matplotlib.pyplot as plt
+import matplotlib.cm as cm
+from matplotlib.patches import Patch
 import scanpy as sc
 import scanorama
 from sklearn.metrics import adjusted_rand_score, silhouette_score, rand_score
 import genomap.genoDR as gp
 
+# --- Configuration ---
+DATA_FILE = './Dataset/human_pancreas_norm_complexBatch.h5ad'
+OUTPUT_FOLDER = './Figures_CSVs'
+BATCH_KEY = 'batch'
+CELLTYPE_KEY = 'celltype'
+
 # --- Helper Functions (Standardized) ---
-def plot_embedding(X, y, title, filename):
-    """Generates and saves a 2D scatter plot of an embedding."""
+def create_custom_colormap(labels, colors):
+    """
+    Creates a custom color mapping dictionary and a list of legend patches.
+    """
+    label_to_color = dict(zip(labels, colors))
+    legend_handles = [Patch(color=label_to_color[label], label=label) for label in labels]
+    return label_to_color, legend_handles
+
+
+def plot_embedding(X, y, title, filename, custom_colors=None):
+    """
+    Generates and saves a 2D scatter plot of an embedding with a custom legend.
+    """
     X, y = np.asarray(X), np.asarray(y)
     plt.figure()
-    plt.scatter(X[:, 0], X[:, 1], c=y, cmap='jet', s=18)
+
+    if custom_colors:
+        unique_labels = np.unique(y)
+        for label in unique_labels:
+            indices = np.where(y == label)
+            plt.scatter(X[indices, 0], X[indices, 1],
+                        color=custom_colors.get(label),
+                        label=label,
+                        s=18)
+
+        # Add legend outside the plot
+        #plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize='small')
+    else:
+        plt.scatter(X[:, 0], X[:, 1], c=y, cmap='jet', s=18)
+
     plt.xlabel(f'{title} Dimension 1', fontsize=8)
     plt.ylabel(f'{title} Dimension 2', fontsize=8)
     plt.title(filename, fontsize=10)
@@ -98,30 +131,6 @@ def main():
     true_labels = adata.obs['celltype'].astype('category').cat.codes.to_numpy()
     n_clusters = len(np.unique(true_labels))
 
-    # #Experiment code
-    # logging.info("Applying GenoMap dimensionality reduction on Scanorama data...")
-    # grid_n_dim  = [15, 32, 64]
-    # grid_sizes  = [(32,32), (36,36), (40,40)]
-    # grid_knn    = [10, 15, 20]
-    # results = []
-    # for d in grid_n_dim:
-    #     for (c,r) in grid_sizes:
-    #         adata.obsm['X_genomap'] = gp.genoDR(adata.obsm['X_scanorama'], n_dim=d, n_clusters=n_clusters, colNum=c, rowNum=r)
-    #         for k in grid_knn:
-    #             sc.pp.neighbors(adata, use_rep='X_genomap', n_neighbors=k, metric='cosine')
-    #             tune_leiden_to_k(adata, true_labels)
-    #             y_pred = adata.obs['leiden'].astype('category').cat.codes.to_numpy()
-    #             ari = adjusted_rand_score(true_labels, y_pred)
-    #             rand = rand_score(true_labels, y_pred)
-    #             sil = silhouette_score(adata.obsm['X_genomap'], y_pred)
-    #             logging.info(f"grid_n_dim: {d:.3f}, grid_sizes: {(c,r):.3f}, grid_knn: {k:.3f}")
-    #             logging.info(f"ARI: {ari:.3f}, Rand Index: {rand:.3f}, Silhouette Score: {sil:.3f}")
-    #             results.append((d,c,r,k,ari,sil))
-        
-    # best = sorted(results, key=lambda t: (-t[5], -t[4]))[0]
-    # print("Best (n_dim,col,row,k,ARI,Sil):", best)
-
-
     logging.info("Applying GenoMap dimensionality reduction on Scanorama data...")
     adata.obsm['X_genomap'] = gp.genoDR(adata.obsm['X_scanorama'],n_dim=32, n_clusters=n_clusters, colNum=33, rowNum=33)
 
@@ -134,9 +143,27 @@ def main():
     sc.tl.umap(adata)
     sc.tl.tsne(adata, use_rep='X_genomap')
 
+
+    # --- PLOTTING AND EVALUATION ---
+    # Get the unique labels from your data
+    unique_labels = sorted(list(np.unique(adata.obs['celltype'])))
+    num_labels = len(unique_labels)
+    # Dynamically generate colors from a matplotlib colormap
+    colors = cm.get_cmap('tab20', num_labels)
+    colors_list = [colors(i) for i in range(num_labels)]
+    # Create the custom color map dictionary
+    label_to_color_map, _ = create_custom_colormap(unique_labels, colors_list)
+
     plot_filename_prefix = "Genomap_Algorithm_Scanorama_Dataset"
-    plot_embedding(adata.obsm['X_umap'], true_labels, 'UMAP', f'UMAP_Plot_{plot_filename_prefix}')
-    plot_embedding(adata.obsm['X_tsne'], true_labels, 't-SNE', f't-SNE_Plot_{plot_filename_prefix}')
+    
+    # Use the new plotting function with the custom colormap
+    plot_embedding(adata.obsm['X_umap'], adata.obs['celltype'].astype(str), "UMAP", f"UMAP_Plot_{plot_filename_prefix}", custom_colors=label_to_color_map)
+    plot_embedding(adata.obsm['X_tsne'], adata.obs['celltype'].astype(str), "t-SNE", f"TSNE_Plot_{plot_filename_prefix}", custom_colors=label_to_color_map)
+
+
+    # plot_filename_prefix = "Genomap_Algorithm_Scanorama_Dataset"
+    # plot_embedding(adata.obsm['X_umap'], true_labels, 'UMAP', f'UMAP_Plot_{plot_filename_prefix}')
+    # plot_embedding(adata.obsm['X_tsne'], true_labels, 't-SNE', f't-SNE_Plot_{plot_filename_prefix}')
 
     # --- 5. EVALUATION ---
     logging.info("Calculating evaluation metrics...")

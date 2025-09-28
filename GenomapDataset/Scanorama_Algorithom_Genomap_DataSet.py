@@ -3,11 +3,13 @@ import logging
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.cm as cm
 from sklearn.metrics import adjusted_rand_score, silhouette_score, rand_score
 import anndata as ad
 import scipy.io as sio
 import scanpy as sc
 import scanorama
+from matplotlib.patches import Patch
 
 # --- Configuration ---
 DATA_FOLDER = './Dataset'
@@ -16,12 +18,33 @@ DATA_FILES = ['dataBaronX.mat', 'dataMuraroX.mat', 'dataScapleX.mat', 'dataWangX
 CLASS_LABEL_FILE = 'classLabel.mat'
 BATCH_LABEL_FILE = 'batchLabel.mat'
 
-# --- Helper Functions (Standardized) ---
-def plot_embedding(X, y, title, filename):
-    """Generates and saves a 2D scatter plot of an embedding."""
+
+# --- Helper Functions for Plotting and Evaluation ---
+
+def create_custom_colormap(labels, colors):
+    label_to_color = dict(zip(labels, colors))
+    legend_handles = [Patch(color=label_to_color[label], label=label) for label in labels]
+    return label_to_color, legend_handles
+
+
+def plot_embedding(X, y, title, filename, custom_colors=None):
     X, y = np.asarray(X), np.asarray(y)
     plt.figure()
-    plt.scatter(X[:, 0], X[:, 1], c=y, cmap='jet', s=18)
+
+    if custom_colors:
+        unique_labels = np.unique(y)
+        for label in unique_labels:
+            indices = np.where(y == label)
+            plt.scatter(X[indices, 0], X[indices, 1],
+                        color=custom_colors.get(label),
+                        label=label,
+                        s=18)
+
+        # Add legend outside the plot
+        #plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize='small')
+    else:
+        plt.scatter(X[:, 0], X[:, 1], c=y, cmap='jet', s=18)
+
     plt.xlabel(f'{title} Dimension 1', fontsize=8)
     plt.ylabel(f'{title} Dimension 2', fontsize=8)
     plt.title(filename, fontsize=10)
@@ -31,6 +54,7 @@ def plot_embedding(X, y, title, filename):
     plt.tight_layout()
     plt.savefig(os.path.join(OUTPUT_FOLDER, f'{filename}.png'), dpi=300)
     plt.close()
+
 
 def plot_metrics_bar(ari, rand, silhouette, filename_prefix):
     """Generates and saves a bar chart of evaluation metrics."""
@@ -49,10 +73,12 @@ def plot_metrics_bar(ari, rand, silhouette, filename_prefix):
     plt.savefig(os.path.join(OUTPUT_FOLDER, f"ARI_RI_SC_Metrics_For_{filename_prefix}.png"), dpi=300)
     plt.close()
 
+
 def save_metrics_csv(ari, rand, silhouette, filename):
     """Saves evaluation metrics to a CSV file."""
     df = pd.DataFrame([{"ARI": ari, "Rand": rand, "Silhouette": silhouette}])
     df.to_csv(os.path.join(OUTPUT_FOLDER, f'{filename}.csv'), index=False)
+
 
 def load_data():
     """Loads all .mat files into a list of AnnData objects and loads labels."""
@@ -70,8 +96,8 @@ def load_data():
             logging.warning(f"No valid data key found in {file}")
 
     class_labels = sio.loadmat(os.path.join(DATA_FOLDER, CLASS_LABEL_FILE))['classLabel'].squeeze()
-
     return adatas, class_labels
+
 
 # --- Main Analysis Function ---
 def main():
@@ -84,22 +110,28 @@ def main():
     logging.info("Loading and preparing data...")
     adatas_list, class_labels = load_data()
 
+    # Create a mapping from numerical labels to class names
+    class_name_map = {
+        1: 'MHC class II', 2: 'acinare', 3: 'ductal', 4: 'gamma', 5: 'macrophage', 6: 'alpha', 
+        7: 'beta', 8: 'endothelial', 9: 'epsilon', 10: 'mast', 11: 'mesenchymal', 12: 'stellate', 
+        13: 'delta', 14: 'schwann'
+    }
+
+    # Map the numerical labels to their corresponding names
+    mapped_labels = np.array([class_name_map.get(lbl, f'Unknown-{lbl}') for lbl in class_labels])
+
     # 2. Apply Scanorama Integration
-    # This is now the FIRST major processing step.
-    # Scanorama internally handles HVG selection with the `hvg` parameter.
     logging.info("Running Scanorama for batch correction...")
-    # The `correct_scanpy` function is convenient and returns a list of corrected AnnData objects
     adatas_corrected = scanorama.correct_scanpy(adatas_list, return_dimred=True, hvg=2000)
-    
+
     # 3. Concatenate the corrected results into a single object for downstream analysis
     logging.info("Constructing unified AnnData object from corrected data...")
     adata = ad.concat(adatas_corrected, join='outer', label="batch_id")
-    
+
     # Ensure labels match the number of cells after integration
-    limit = min(adata.n_obs, len(class_labels))
+    limit = min(adata.n_obs, len(mapped_labels))
     adata = adata[:limit, :].copy()
-    adata.obs['class'] = class_labels[:limit]
-    
+    adata.obs['class'] = mapped_labels[:limit]
 
     # 4. Clustering and Visualization
     logging.info("Building neighborhood graph and running Leiden clustering...")
@@ -110,10 +142,23 @@ def main():
     sc.tl.umap(adata)
     sc.tl.tsne(adata, use_rep='X_scanorama')
 
+    # Get the unique labels from your data
+    unique_labels = sorted(list(np.unique(adata.obs['class'])))
+    num_labels = len(unique_labels)
+    
+    # Dynamically generate colors from a matplotlib colormap
+    colors = cm.get_cmap('tab20', num_labels)
+    colors_list = [colors(i) for i in range(num_labels)]
+
+    # Create the custom color map dictionary
+    label_to_color_map, _ = create_custom_colormap(unique_labels, colors_list)
+
     # Plotting based on true class labels for visual inspection
     plot_filename_prefix = "Scanorama_Algorithm_Genomap_Dataset"
-    plot_embedding(adata.obsm['X_umap'], adata.obs['class'].astype('category').cat.codes, "UMAP", f"UMAP_Plot_{plot_filename_prefix}")
-    plot_embedding(adata.obsm['X_tsne'], adata.obs['class'].astype('category').cat.codes, "t-SNE", f"TSNE_Plot_{plot_filename_prefix}")
+    # Use the new plotting function with the custom colormap
+    plot_embedding(adata.obsm['X_umap'], adata.obs['class'].astype(str), "UMAP", f"UMAP_Plot_{plot_filename_prefix}", custom_colors=label_to_color_map)
+    plot_embedding(adata.obsm['X_tsne'], adata.obs['class'].astype(str), "t-SNE", f"TSNE_Plot_{plot_filename_prefix}", custom_colors=label_to_color_map)
+
 
     # 5. Evaluation
     logging.info("Calculating evaluation metrics...")
@@ -127,8 +172,9 @@ def main():
 
     plot_metrics_bar(ari, rand, silhouette, plot_filename_prefix)
     save_metrics_csv(ari, rand, silhouette, f"CSV_{plot_filename_prefix}")
-    
+
     logging.info("Scanorama analysis complete.")
+
 
 if __name__ == "__main__":
     main()
